@@ -289,9 +289,9 @@ def generate_xhtml_response(title, body_content):
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes" />
     <style type="text/css">
         body {{ background-color: whitesmoke; color: black; margin: 0; padding: 0; }}
-        a { color: darkblue; text-decoration: none; }
-        a:visited { color: purple; }
-        a:hover { text-decoration: underline; }
+        a {{ color: darkblue; text-decoration: none; }}
+        a:visited {{ color: purple; }}
+        a:hover {{ text-decoration: underline; }}
         .header {{ background-color: #3B5998; color: white; padding: 4px 6px; font-weight: bold; }}
         .content {{ padding: 6px; line-height: 1.6; text-align: justify; word-wrap: break-word; }}
         .content b {{ color: black; }}
