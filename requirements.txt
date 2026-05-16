@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+feedparser
+motor
+httpx
+trafilatura
+lxml_html_clean
+cachetools
+Pillow
