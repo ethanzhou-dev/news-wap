@@ -23,20 +23,13 @@ try:
 except ImportError:
     pass
 
-# 全文缓存池，限制最大存储篇数，防止内存无限膨胀
 full_content_cache = TTLCache(maxsize=200, ttl=86400)
-# 图片代理缓存：限制最大缓存 500 张图片，超过 7 天自动清除
 image_cache = TTLCache(maxsize=500, ttl=86400 * 7)
 
-# 预抓取队列
 prefetch_queue = asyncio.Queue()
 
-# 伪装成普通电脑浏览器访问，防止被 RSS 源站屏蔽
 feedparser.USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-# ==========================================
-# SSRF 保护：用于签名代理图片 URL 的密钥
-# ==========================================
 SECRET_KEY = os.environ.get("SECRET_KEY", os.urandom(32).hex()).encode("utf-8")
 
 
@@ -49,9 +42,6 @@ def verify_url(url: str, sign: str) -> bool:
     return hmac.compare_digest(expected_sign, sign)
 
 
-# ==========================================
-# 0. 数据库配置 (使用 Motor 异步驱动，内置连接池和断线重连)
-# ==========================================
 MONGO_URI = os.environ.get("MONGO_URI", "")
 space_id_raw = os.environ.get("SPACE_ID", "default_space")
 space_id_safe = space_id_raw.replace("/", "_").replace("-", "_").replace(".", "_")
@@ -65,7 +55,6 @@ def get_db_collections():
         return None, None
 
     if _mongo_client is None:
-        # Motor 自动管理连接池和心跳重连，无需手动 close/置空
         _mongo_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 
     db = _mongo_client["news_sites_db"]
@@ -85,9 +74,6 @@ if MONGO_URI:
 else:
     print("未配置 MONGO_URI，以纯内存模式运行")
 
-# ==========================================
-# 1. 配置新闻分类与源
-# ==========================================
 RSS_FEEDS = {
     "importnews": {
         "name": "要闻",
@@ -109,9 +95,6 @@ RSS_FEEDS = {
     "theory": {"name": "理论", "url": "https://www.chinanews.com.cn/rss/theory.xml"},
 }
 
-# ==========================================
-# 2. 独立分类缓存池与序列化辅助
-# ==========================================
 CACHE_TTL = 600
 news_cache = {cat_id: {"timestamp": 0, "items": []} for cat_id in RSS_FEEDS.keys()}
 
@@ -196,7 +179,6 @@ async def sync_feed(cat_id: str):
                 cache["items"].insert(added_count, item)
                 to_save.append(serialize_item(item, cat_id))
 
-                # 将新抓取到的文章链接推入队列，让后台线程预先下载正文和图片
                 prefetch_queue.put_nowait((item.get("link", ""), cat_id))
 
                 added_count += 1
@@ -247,26 +229,21 @@ async def background_refresher():
         await asyncio.sleep(CACHE_TTL)
 
 
-# ==========================================
-# 3. 预加载工作协程 (后台静默下载图片)
-# ==========================================
 async def prefetch_worker():
     """后台异步提取新闻正文及缓存图片的队列工作任务"""
-    await asyncio.sleep(10)  # 延迟启动
+    await asyncio.sleep(10)
     print("后台预抓取工作线程已启动，等待新文章加入队列...")
     while True:
         try:
             item_link, cat = await prefetch_queue.get()
             print(f"[预抓取] 正在处理新文章: {item_link}")
-            # 1. 预先抓取文章正文
             full_content = await fetch_article_content(item_link, cat)
             if full_content:
-                # 2. 从正文中提取所有图片并预先下载存入内存缓存
                 img_urls = re.findall(r"\[IMAGE:(.*?)\]", full_content)
                 for img_url in img_urls:
                     print(f"  -> [预抓取] 发现图片，准备缓存: {img_url}")
                     await fetch_and_cache_image(img_url)
-                    await asyncio.sleep(1)  # 防护：避免并发请求过快被源站封禁
+                    await asyncio.sleep(1)
             prefetch_queue.task_done()
             await asyncio.sleep(2)
         except Exception as e:
@@ -278,7 +255,7 @@ async def prefetch_worker():
 async def lifespan(app: FastAPI):
     await load_all_from_db()
     asyncio.create_task(background_refresher())
-    asyncio.create_task(prefetch_worker())  # 启动预取任务
+    asyncio.create_task(prefetch_worker())
     yield
     global _mongo_client
     if _mongo_client is not None:
@@ -311,20 +288,20 @@ def generate_xhtml_response(title, body_content):
     <link rel="apple-touch-icon" href="/speeddial-icon.png?v=1" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes" />
     <style type="text/css">
-        body {{ background-color: #F4F4F4; color: #222222; margin: 0; padding: 0; }}
-        a {{ color: #003399; text-decoration: none; }}
-        a:visited {{ color: #551A8B; }}
-        a:hover {{ text-decoration: underline; }}
-        .header {{ background-color: #3B5998; color: #FFFFFF; padding: 4px 6px; font-weight: bold; border-bottom: 1px solid #000000; }}
+        body {{ background-color: whitesmoke; color: black; margin: 0; padding: 0; }}
+        a { color: darkblue; text-decoration: none; }
+        a:visited { color: purple; }
+        a:hover { text-decoration: underline; }
+        .header {{ background-color: #3B5998; color: white; padding: 4px 6px; font-weight: bold; }}
         .content {{ padding: 6px; line-height: 1.6; text-align: justify; word-wrap: break-word; }}
-        .content b {{ color: #000000; }}
-        hr {{ border: 0; border-bottom: 1px solid #CCCCCC; margin: 6px 0; }}
-        select, input {{ border: 1px solid #999999; background-color: #FFFFFF; margin-top: 4px; }}
-        input[type="submit"] {{ background-color: #E0E0E0; padding: 2px 6px; }}
-        .nav {{ background-color: #EAEAEA; padding: 6px; border-top: 1px solid #CCCCCC; text-align: center; }}
+        .content b {{ color: black; }}
+        hr {{ border: 0; border-bottom: 1px solid silver; margin: 6px 0; }}
+        select, input {{ border: 1px solid silver; background-color: white; margin-top: 4px; }}
+        input[type="submit"] {{ background-color: gainsboro; padding: 2px 6px; }}
+        .nav {{ background-color: gainsboro; padding: 6px; border-top: 1px solid silver; text-align: center; }}
         .item {{ padding: 1px 1px; display: block; }}
-        .odd {{ background-color: #EBEBEB; }}
-        .even {{ background-color: #FAFAFA; }}
+        .odd {{ background-color: lightgray; }}
+        .even {{ background-color: white; }}
     </style>
 </head>
 <body>
@@ -408,16 +385,12 @@ async def get_index(request: Request, cat: str = "importnews", page: int = 1):
     return generate_xhtml_response("今日新闻", body_content)
 
 
-# ==========================================
-# 提取出独立的文章抓取方法 (复用)
-# ==========================================
 async def fetch_article_content(item_link: str, cat: str):
     full_content = full_content_cache.get(item_link)
     if full_content or not item_link or cat == "tech":
         return full_content
 
     try:
-        # 防护大文件，限制读取大小为 2MB
         async with httpx.AsyncClient(timeout=8.0) as client:
             headers = {"User-Agent": feedparser.USER_AGENT}
             async with client.stream("GET", item_link, headers=headers) as resp:
@@ -528,7 +501,6 @@ async def get_article(request: Request, cat: str, item_id: str):
     item_link = item.get("link", "")
     safe_title = html.escape(item.get("title", "无标题"))
 
-    # 获取缓存（如果在后台已预加载，这里直接秒出。否则依旧实时抓取）
     full_content = await fetch_article_content(item_link, cat)
     if not full_content:
         full_content = getattr(item, "full_content", None) or item.get("full_content")
@@ -605,9 +577,6 @@ async def get_article(request: Request, cat: str, item_id: str):
     return generate_xhtml_response("新闻详情", body_content)
 
 
-# ==========================================
-# 提取出独立的图片代理与缓存逻辑 (复用)
-# ==========================================
 async def fetch_and_cache_image(url: str):
     if not url or not url.startswith(("http://", "https://")):
         return None
@@ -636,7 +605,6 @@ async def fetch_and_cache_image(url: str):
                     async for chunk in resp.aiter_bytes():
                         chunks.append(chunk)
                         downloaded_size += len(chunk)
-                        # 限制图片最大 15MB
                         if downloaded_size > 15 * 1024 * 1024:
                             print(f"图片超过 15MB 限制: {url}")
                             return None
@@ -646,7 +614,6 @@ async def fetch_and_cache_image(url: str):
                         try:
 
                             def process_image():
-                                # 防止解压炸弹
                                 Image.MAX_IMAGE_PIXELS = 10000000
                                 img = Image.open(io.BytesIO(img_data))
                                 if img.mode in ("RGBA", "P", "LA"):
