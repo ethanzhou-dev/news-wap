@@ -130,11 +130,15 @@ def deserialize_item(doc):
 
 async def load_all_from_db():
     news_col, meta_col = get_db_collections()
-    if news_col is None:
+    if news_col is None or meta_col is None:
         return
     try:
         await news_col.create_index([("cat_id", 1), ("published_parsed", -1)])
         await news_col.create_index([("link", 1)], unique=True)
+
+        img_col = get_image_collection()
+        if img_col is not None:
+            await img_col.create_index([("updated_at", -1)])
 
         for cat_id in RSS_FEEDS.keys():
             docs = (
@@ -189,7 +193,7 @@ async def sync_feed(cat_id: str):
                 for item in to_save
             ]
             col, meta_col = get_db_collections()
-            if col is not None:
+            if col is not None and meta_col is not None:
                 try:
                     await col.bulk_write(ops, ordered=False)
                     await meta_col.update_one(
@@ -238,7 +242,7 @@ async def prefetch_worker():
             item_link, cat = await prefetch_queue.get()
             print(f"[预抓取] 正在处理新文章: {item_link}")
             full_content = await fetch_article_content(item_link, cat)
-            if full_content:
+            if isinstance(full_content, str):
                 img_urls = re.findall(r"\[IMAGE:(.*?)\]", full_content)
                 for img_url in img_urls:
                     print(f"  -> [预抓取] 发现图片，准备缓存: {img_url}")
@@ -510,6 +514,8 @@ async def get_article(request: Request, cat: str, item_id: str):
         if full_content
         else item.get("summary", item.get("description", "暂无详细内容"))
     )
+    if not isinstance(display_content, str):
+        display_content = str(display_content)
 
     if full_content:
         noise_pattern = r".*?新闻精选：|相关阅读|推荐阅读|猜你喜欢|版权声明"
@@ -633,7 +639,11 @@ async def fetch_and_cache_image(url: str):
                                     ratio = max_width / img.width
                                     img = img.resize(
                                         (max_width, int(img.height * ratio)),
-                                        getattr(Image, "Resampling", Image).LANCZOS,
+                                        getattr(
+                                            getattr(Image, "Resampling", Image),
+                                            "LANCZOS",
+                                            getattr(Image, "ANTIALIAS", 1),
+                                        ),
                                     )
                                 out = io.BytesIO()
                                 img.save(out, format="JPEG", quality=65, optimize=True)
@@ -648,9 +658,26 @@ async def fetch_and_cache_image(url: str):
                         try:
                             await img_col.update_one(
                                 {"_id": url},
-                                {"$set": {"img_data": img_data}},
+                                {
+                                    "$set": {
+                                        "img_data": img_data,
+                                        "updated_at": time.time(),
+                                    }
+                                },
                                 upsert=True,
                             )
+                            last_docs = (
+                                await img_col.find({})
+                                .sort("updated_at", -1)
+                                .skip(2000)
+                                .limit(1)
+                                .to_list(length=1)
+                            )
+                            if last_docs:
+                                cutoff_time = last_docs[0]["updated_at"]
+                                await img_col.delete_many(
+                                    {"updated_at": {"$lt": cutoff_time}}
+                                )
                         except Exception as e:
                             print(f"MongoDB 图片保存失败: {e}")
                     return img_data
