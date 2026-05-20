@@ -144,8 +144,8 @@ async def load_all_from_db():
             docs = (
                 await news_col.find({"cat_id": cat_id})
                 .sort("published_parsed", -1)
-                .limit(200)
-                .to_list(length=200)
+                .limit(300)
+                .to_list(length=300)
             )
             if docs:
                 news_cache[cat_id]["items"] = [deserialize_item(doc) for doc in docs]
@@ -204,7 +204,7 @@ async def sync_feed(cat_id: str):
                     last_docs = (
                         await col.find({"cat_id": cat_id})
                         .sort("published_parsed", -1)
-                        .skip(500)
+                        .skip(300)
                         .limit(1)
                         .to_list(length=1)
                     )
@@ -216,7 +216,7 @@ async def sync_feed(cat_id: str):
                 except Exception as ex:
                     print(f"MongoDB 写入失败 ({cat_id}): {ex}")
 
-        cache["items"] = cache["items"][:500]
+        cache["items"] = cache["items"][:300]
         cache["timestamp"] = current_time
         return True
     except Exception as e:
@@ -666,7 +666,7 @@ async def fetch_and_cache_image(url: str):
                             last_docs = (
                                 await img_col.find({})
                                 .sort("updated_at", -1)
-                                .skip(2000)
+                                .skip(1000)
                                 .limit(1)
                                 .to_list(length=1)
                             )
