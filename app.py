@@ -285,9 +285,6 @@ def generate_xhtml_response(title, body_content):
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-CN" lang="zh-CN">
 <head>
     <title>{title}</title>
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
     <link rel="shortcut icon" href="/favicon.ico?v=1" type="image/x-icon" />
     <link rel="apple-touch-icon" href="/speeddial-icon.png?v=1" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes" />
@@ -709,7 +706,7 @@ def favicon():
         return FileResponse(
             "favicon.ico",
             media_type="image/x-icon",
-            headers={"Cache-Control": "max-age=0"},
+            headers={"Cache-Control": "public, max-age=86400"},
         )
     return Response(status_code=404)
 

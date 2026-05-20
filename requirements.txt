@@ -2,6 +2,7 @@ fastapi
 uvicorn
 feedparser
 motor
+pymongo
 httpx
 trafilatura
 lxml_html_clean
